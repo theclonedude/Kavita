@@ -14,5 +14,5 @@ jobs:
     - name: Trigger next workflow
       uses: benc-uk/workflow-dispatch@v1
       with:
-        workflow: Version Bump (develop)
+        workflow: Version Bump for Develop
         token: ${{ secrets.REPO_GHA_PAT }}
