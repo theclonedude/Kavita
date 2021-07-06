@@ -1,4 +1,4 @@
-﻿name: Version Bump (develop)
+﻿name: Version Bump for Develop
 on: 
   workflow_dispatch:
 
