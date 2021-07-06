@@ -9,8 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger next workflow
-      uses: ./
-      with:
-        workflow: Version Bump (develop)
-        token: ${{ secrets.REPO_GHA_PAT }}
+        uses: ./
+        with:
+          workflow: Version Bump (develop)
+          token: ${{ secrets.REPO_GHA_PAT }}
 
