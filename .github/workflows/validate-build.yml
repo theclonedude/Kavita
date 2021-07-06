@@ -2,7 +2,7 @@
 on:
   push:
     branches:
-      - ['feature/monorepo', 'feature/monorepo-build']
+      - 'feature/monorepo', 'feature/monorepo-build'
 
 jobs:
   validate:
