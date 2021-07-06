@@ -1,0 +1,27 @@
+﻿name: Version Bump (develop)
+on:
+  repository_dispatch:
+    types: [trigger-workflow-2]
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Git Semantic Version
+        uses: PaulHatch/semantic-version@v4.0.2
+        with:
+          tag_prefix: "v"
+          change_path: "API,Kavita.Common,Kavita.Update,UI"
+          bump_each_commit: false
+      - name: Trigger next workflow
+        if: success()
+        uses: peter-evans/repository-dispatch@v1
+        with:
+          token: ${{ secrets.REPO_GHA_PAT }}
+          repository: ${{ github.repository }}
+          event-type: trigger-workflow-3
+          client-payload: '{"ref": "${{ github.ref }}", "sha": "${{ github.sha }}"}'

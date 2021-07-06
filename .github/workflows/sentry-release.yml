@@ -1,7 +1,7 @@
 name: Sentry Release
 on:
-  push:
-    branches: [ main, develop, feature/sentry-release ]
+  repository_dispatch:
+    types: [trigger-workflow-3]
 
 jobs:
   build:
@@ -14,6 +14,8 @@ jobs:
           token: ${{ SECRETS.SENTRY_TOKEN }}
           organization: kavita-7n
           project: angular
+      - name: Change Directory
+        run: "cd UI/Web/"
       - name: Checkout
         uses: actions/checkout@v2
       - name: Install NodeJS
