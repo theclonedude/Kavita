@@ -8,9 +8,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+    - name: Check out repository
+      uses: actions/checkout@v2
+
     - name: Trigger next workflow
       uses: ./
       with:
         workflow: Version Bump (develop)
         token: ${{ secrets.REPO_GHA_PAT }}
-
