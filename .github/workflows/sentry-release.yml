@@ -30,13 +30,14 @@ jobs:
           node-version: '14'
       - run: |
           version='${{ github.event.inputs.version }}'
-          echo '${version##*.}'
+          newVersion=${version##*.}
+          echo ${newVersion}
 
           cd UI/Web || exit
           echo 'Installing web dependencies'
           npm install
 
-          npm version '${version##*.}'
+          npm version ${newVersion}
 
           echo 'Building UI'
           npm run prod
