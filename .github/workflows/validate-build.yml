@@ -10,7 +10,27 @@ jobs:
     steps:
     - name: Check out repository
       uses: actions/checkout@v2
+      
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: 5.0.100
 
+    - name: Install dependencies
+      run: dotnet restore
+      
+    - name: Build .Net
+      run: dotnet build --configuration Release --no-restore
+      
+    - name: Echo PWD
+      run: echo $PWD
+      
+    - name: Bump versions
+      uses: SiqiLu/dotnet-bump-version@master
+      with:
+        version_files: \*_/_.csproj
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        
     - name: Trigger next workflow
       uses: benc-uk/workflow-dispatch@v1
       with:
