@@ -36,7 +36,7 @@ jobs:
       run: cat Kavita.Common/Kavita.Common.csproj
 
     - name: Get new csproj Version
-    - uses: naminodarie/get-net-sdk-project-versions-action@v1
+      uses: naminodarie/get-net-sdk-project-versions-action@v1
       id: get-version
       with:
         proj-path: Kavita.Common/Kavita.Common.csproj
