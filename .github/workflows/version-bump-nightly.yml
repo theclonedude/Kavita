@@ -18,9 +18,11 @@ jobs:
         run: dotnet restore
       - name: Build
         run: dotnet build --configuration Release --no-restore
+      - name: Echo PWD
+        run: echo $PWD
       - name: Bump versions
         uses: SiqiLu/dotnet-bump-version@master
         with:
-          version_files: "Kavita.Common/*.csproj"
+          version_files: \*_/_.csproj
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          
+
