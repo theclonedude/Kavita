@@ -33,7 +33,8 @@ jobs:
           echo 'Installing web dependencies'
           npm install
           version="${{ github.event.inputs.version }}"
-          npm version '${version##*.}'
+          echo ${version##*.}
+          npm version ${version##*.}
 
           echo 'Building UI'
           npm run prod
