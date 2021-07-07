@@ -32,7 +32,7 @@ jobs:
           cd UI/Web || exit
           echo 'Installing web dependencies'
           npm install
-          npm version '${{ github.event.inputs.version }}''
+          npm version '${{ github.event.inputs.version }}'
 
           echo 'Building UI'
           npm run prod
