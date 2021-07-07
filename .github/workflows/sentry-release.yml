@@ -19,11 +19,17 @@ jobs:
         with:
           ref: feature/monorepo-build
         
-      - name: Install NodeJS
-        uses: actions/setup-node@v2
+      - name: NodeJS to Compile WebUI
+        uses: actions/setup-node@v2.1.5
         with:
-          node-version: '12'
+          node-version: '14'
+      - run: |
+          cd Web/UI || exit
+          echo 'Installing web dependencies'
+          npm install
 
+          echo 'Building UI'
+          npm run prod
       - name: Cache dependencies
         uses: actions/cache@v2
         with:
@@ -31,15 +37,6 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
-
-      - name: Change Directory
-        run: "cd UI/Web/"
-        
-      - name: Install Dependencies
-        run: npm install
-
-      - name: Build Angular
-        run: npm run prod
         
       - name: get-npm-version
         id: package-version
