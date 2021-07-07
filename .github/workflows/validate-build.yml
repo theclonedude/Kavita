@@ -1,4 +1,4 @@
-﻿name: Validate Run
+name: Validate Run
 on:
   push:
     branches: [ feature/monorepo, feature/monorepo-build]
