@@ -42,7 +42,7 @@ jobs:
         echo 'Installing web dependencies'
         npm install
 
-        npm version ${{ steps.parse-version.outputs.VERSION }}
+        npm version "${{ steps.parse-version.outputs.VERSION }}"
 
         echo 'Building UI'
         npm run prod
