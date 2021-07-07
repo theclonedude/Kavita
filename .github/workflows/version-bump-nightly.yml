@@ -1,5 +1,5 @@
 ﻿name: Version Bump for Develop
-on: 
+on:
   workflow_dispatch:
 
 jobs:
@@ -28,5 +28,5 @@ jobs:
       - name: Bump versions
         uses: SiqiLu/dotnet-bump-version@master
         with:
-          version_files: "**/*.csproj"
+          version_files: "Kavita.Common/*.csproj"
           github_token: ${{ secrets.GITHUB_TOKEN }}
