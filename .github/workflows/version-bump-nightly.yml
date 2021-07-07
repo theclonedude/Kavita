@@ -1,6 +1,7 @@
 ﻿name: Version Bump for Develop
 on: 
-  workflow_dispatch:
+  push:
+    branches: [ feature/monorepo, feature/monorepo-build]
 
 jobs:
   build:
