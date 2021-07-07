@@ -41,7 +41,7 @@ jobs:
           echo 'Installing web dependencies'
           npm install
 
-          npm version echo ${{ steps.random-color-generator.outputs.VERSION }}
+          npm version echo ${{ steps.parse-version.outputs.VERSION }}
 
           echo 'Building UI'
           npm run prod
