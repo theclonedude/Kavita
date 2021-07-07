@@ -24,20 +24,24 @@ jobs:
         with:
           ref: feature/monorepo-build
         
+      - name: Parse Version
+        run: |
+          version='${{ github.event.inputs.version }}'
+          newVersion=${version%%.*}
+          echo ${newVersion}
+          echo '::set-output name=VERSION::${newVersion}'
+        id: parse-version
+
       - name: NodeJS to Compile WebUI
         uses: actions/setup-node@v2.1.5
         with:
           node-version: '14'
-      - run: |
-          version='${{ github.event.inputs.version }}'
-          newVersion=${version%%*.}
-          echo ${newVersion}
-
+        run: |
           cd UI/Web || exit
           echo 'Installing web dependencies'
           npm install
 
-          npm version echo ${newVersion}
+          npm version echo ${{ steps.random-color-generator.outputs.VERSION }}
 
           echo 'Building UI'
           npm run prod
