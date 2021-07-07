@@ -13,7 +13,7 @@ jobs:
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: 5.0.100
+          dotnet-version: 5.0.7
       - name: Install dependencies
         run: dotnet restore
       - name: Set up JDK 11
@@ -28,5 +28,5 @@ jobs:
       - name: Bump versions
         uses: SiqiLu/dotnet-bump-version@master
         with:
-          version_files: "**/*.csproj"
+          version_files: "Kavita.Common/*.csproj"
           github_token: ${{ secrets.GITHUB_TOKEN }}
