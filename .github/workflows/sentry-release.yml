@@ -41,6 +41,8 @@ jobs:
       - name: get-npm-version
         id: package-version
         uses: martinbeentjes/npm-get-version-action@master
+        with:
+          path: UI/Web/
 
       - name: Create Release
         run: sentry-cli releases new ${{ steps.package-version.outputs.current-version }}
