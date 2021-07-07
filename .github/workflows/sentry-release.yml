@@ -1,11 +1,7 @@
 name: Sentry Release
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "version to update package.json"
-        required: true
-        # No default
+  push:
+    branches: [ feature/monorepo, feature/monorepo-build]
 
 jobs:
   build:
