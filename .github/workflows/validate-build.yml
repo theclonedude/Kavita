@@ -42,11 +42,11 @@ jobs:
         proj-path: Kavita.Common/Kavita.Common.csproj
 
     - name: Echo csproj version
-      run: echo "${{steps.get-version.outputs.assembly-version}}" 
+      run: echo "${{steps.get-version.outputs.version}}" 
         
     - name: Trigger next workflow
       uses: benc-uk/workflow-dispatch@v1
       with:
         workflow: Sentry Release
         token: ${{ secrets.REPO_GHA_PAT }}
-        inputs: '{ "version": "${{steps.get-version.outputs.assembly-version}}" }'
+        inputs: '{ "version": "${{steps.get-version.outputs.version}}" }'
