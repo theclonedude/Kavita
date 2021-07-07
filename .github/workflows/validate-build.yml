@@ -34,9 +34,16 @@ jobs:
         
     - name: Find csproj
       run: cat Kavita.Common/Kavita.Common.csproj
+
+    - name: Get new csproj Version
+    - uses: naminodarie/get-net-sdk-project-versions-action@v1
+      id: get-version
+      with:
+        proj-path: Kavita.Common/Kavita.Common.csproj
         
     - name: Trigger next workflow
       uses: benc-uk/workflow-dispatch@v1
       with:
         workflow: Sentry Release
         token: ${{ secrets.REPO_GHA_PAT }}
+        inputs: '{ "version": "${{steps.get-version.outputs.version}}" }'

@@ -1,6 +1,11 @@
 name: Sentry Release
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "version to update package.json"
+        required: true
+        # No default
 
 jobs:
   build:
@@ -27,9 +32,11 @@ jobs:
           cd UI/Web || exit
           echo 'Installing web dependencies'
           npm install
+          npm version '${{ github.event.inputs.version }}''
 
           echo 'Building UI'
           npm run prod
+
       - name: Cache dependencies
         uses: actions/cache@v2
         with:
@@ -37,12 +44,6 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
-        
-      - name: get-npm-version
-        id: package-version
-        uses: martinbeentjes/npm-get-version-action@master
-        with:
-          path: UI/Web/
 
       - name: Create Release
         run: sentry-cli releases new ${{ steps.package-version.outputs.current-version }}
