@@ -37,15 +37,15 @@ jobs:
         with:
           node-version: '14'
 
-      -run: |
-        cd UI/Web || exit
-        echo 'Installing web dependencies'
-        npm install
+      - run: |
+          cd UI/Web || exit
+          echo 'Installing web dependencies'
+          npm install
 
-        npm version "${{ steps.parse-version.outputs.VERSION }}"
+          npm version "${{ steps.parse-version.outputs.VERSION }}"
 
-        echo 'Building UI'
-        npm run prod
+          echo 'Building UI'
+          npm run prod
 
       - name: Cache dependencies
         uses: actions/cache@v2
