@@ -27,9 +27,9 @@ jobs:
       - name: Parse Version
         run: |
           version='${{ github.event.inputs.version }}'
-          newVersion='${version%%.*}'
-          echo '${newVersion}'
-          echo '::set-output name=VERSION::${newVersion}'
+          newVersion=${version%.*}
+          echo $newVersion
+          echo "::set-output name=VERSION::$newVersion"
         id: parse-version
 
       - name: NodeJS to Compile WebUI
