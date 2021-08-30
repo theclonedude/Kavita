@@ -1,9 +1,10 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { NgbModal, NgbRatingConfig } from '@ng-bootstrap/ng-bootstrap';
 import { ToastrService } from 'ngx-toastr';
-import { finalize, take, takeWhile } from 'rxjs/operators';
+import { Subject } from 'rxjs';
+import { finalize, take, takeUntil, takeWhile } from 'rxjs/operators';
 import { CardDetailsModalComponent } from '../cards/_modals/card-details-modal/card-details-modal.component';
 import { EditSeriesModalComponent } from '../cards/_modals/edit-series-modal/edit-series-modal.component';
 import { ConfirmConfig } from '../shared/confirm-dialog/_models/confirm-config';
@@ -23,6 +24,7 @@ import { ActionItem, ActionFactoryService, Action } from '../_services/action-fa
 import { ActionService } from '../_services/action.service';
 import { ImageService } from '../_services/image.service';
 import { LibraryService } from '../_services/library.service';
+import { EVENTS, MessageHubService } from '../_services/message-hub.service';
 import { ReaderService } from '../_services/reader.service';
 import { SeriesService } from '../_services/series.service';
 
@@ -32,7 +34,7 @@ import { SeriesService } from '../_services/series.service';
   templateUrl: './series-detail.component.html',
   styleUrls: ['./series-detail.component.scss']
 })
-export class SeriesDetailComponent implements OnInit {
+export class SeriesDetailComponent implements OnInit, OnDestroy {
 
   series!: Series;
   volumes: Volume[] = [];
@@ -76,6 +78,8 @@ export class SeriesDetailComponent implements OnInit {
    */
   actionInProgress: boolean = false;
 
+  private onDestory: Subject<void> = new Subject<void>();
+
 
   get LibraryType(): typeof LibraryType {
     return LibraryType;
@@ -97,7 +101,7 @@ export class SeriesDetailComponent implements OnInit {
               private actionFactoryService: ActionFactoryService, private libraryService: LibraryService,
               private confirmService: ConfirmService, private titleService: Title,
               private downloadService: DownloadService, private actionService: ActionService,
-              public imageSerivce: ImageService) {
+              public imageSerivce: ImageService, private messageHub: MessageHubService) {
     ratingConfig.max = 5;
     this.router.routeReuseStrategy.shouldReuseRoute = () => false;
     this.accountService.currentUser$.pipe(take(1)).subscribe(user => {
@@ -124,6 +128,24 @@ export class SeriesDetailComponent implements OnInit {
       this.libraryType = type;
       this.loadSeries(seriesId);
     });
+
+    //, takeWhile(v => v.event === EVENTS.RefreshMetadata)
+    this.messageHub.messages$.pipe(takeUntil(this.onDestory)).subscribe((event: {event: string, payload: {seriesId: number, seriesName: string, hasUpdates: boolean}}) => {
+      if (event.event !== EVENTS.RefreshMetadata) {
+        return;
+      }
+      if (event.payload.hasUpdates) {
+        this.loadSeries(this.series.id);
+      }
+      console.log('metadata was refreshed, payload: ', event.payload);
+    });
+
+    
+  }
+
+  ngOnDestroy() {
+    this.onDestory.next();
+    this.onDestory.complete();
   }
 
   loadSeriesMetadata(seriesId: number) {

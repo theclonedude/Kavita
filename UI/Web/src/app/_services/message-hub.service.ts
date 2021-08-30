@@ -7,7 +7,8 @@ import { environment } from 'src/environments/environment';
 import { UpdateNotificationModalComponent } from '../shared/update-notification/update-notification-modal.component';
 
 export enum EVENTS {
-  UpdateAvailable = 'UpdateAvailable'
+  UpdateAvailable = 'UpdateAvailable',
+  RefreshMetadata = 'RefreshMetadata'
 }
 
 export interface Message<T> {
@@ -20,7 +21,7 @@ export interface Message<T> {
 })
 export class MessageHubService {
   hubUrl = environment.hubUrl;
-  private hubConnection!: HubConnection;
+  hubConnection!: HubConnection;
   private updateNotificationModalRef: NgbModalRef | null = null;
 
   private messagesSource = new ReplaySubject<Message<any>>(1);
@@ -42,6 +43,13 @@ export class MessageHubService {
 
     this.hubConnection.on('receiveMessage', body => {
       //console.log('[Hub] Body: ', body);
+    });
+
+    this.hubConnection.on('RefreshMetadata', resp => {
+      this.messagesSource.next({
+        event: EVENTS.RefreshMetadata,
+        payload: resp.body
+      });
     });
 
     this.hubConnection.on(EVENTS.UpdateAvailable, resp => {

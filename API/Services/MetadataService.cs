@@ -9,6 +9,8 @@ using API.Entities.Enums;
 using API.Extensions;
 using API.Interfaces;
 using API.Interfaces.Services;
+using API.SignalR;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 
 namespace API.Services
@@ -20,6 +22,7 @@ namespace API.Services
         private readonly IArchiveService _archiveService;
         private readonly IBookService _bookService;
         private readonly IImageService _imageService;
+        private readonly IHubContext<MessageHub> _messageHub;
         private readonly ChapterSortComparerZeroFirst _chapterSortComparerForInChapterSorting = new ChapterSortComparerZeroFirst();
         /// <summary>
         /// Width of the Thumbnail generation
@@ -27,13 +30,15 @@ namespace API.Services
         public static readonly int ThumbnailWidth = 320; // 153w x 230h
 
         public MetadataService(IUnitOfWork unitOfWork, ILogger<MetadataService> logger,
-            IArchiveService archiveService, IBookService bookService, IImageService imageService)
+            IArchiveService archiveService, IBookService bookService, IImageService imageService,
+            IHubContext<MessageHub> messageHub)
         {
             _unitOfWork = unitOfWork;
             _logger = logger;
             _archiveService = archiveService;
             _bookService = bookService;
             _imageService = imageService;
+            _messageHub = messageHub;
         }
 
         /// <summary>
@@ -171,7 +176,7 @@ namespace API.Services
         /// <remarks>This can be heavy on memory first run</remarks>
         /// <param name="libraryId"></param>
         /// <param name="forceUpdate">Force updating cover image even if underlying file has not been modified or chapter already has a cover image</param>
-        public void RefreshMetadata(int libraryId, bool forceUpdate = false)
+        public async Task RefreshMetadata(int libraryId, bool forceUpdate = false)
         {
             var sw = Stopwatch.StartNew();
             var library = Task.Run(() => _unitOfWork.LibraryRepository.GetFullLibraryForIdAsync(libraryId)).GetAwaiter().GetResult();
@@ -191,7 +196,11 @@ namespace API.Services
                 }
 
                 UpdateMetadata(series, forceUpdate);
+                var hasChanges = _unitOfWork.HasChanges(); // This will always be true because we are always changing lastUpdated
                 _unitOfWork.SeriesRepository.Update(series);
+
+                // Send update to anyone that this series cover has updated
+                await SendUpdate(series, hasChanges);
             }
 
 
@@ -207,7 +216,7 @@ namespace API.Services
         /// </summary>
         /// <param name="libraryId"></param>
         /// <param name="seriesId"></param>
-        public void RefreshMetadataForSeries(int libraryId, int seriesId)
+        public async Task RefreshMetadataForSeries(int libraryId, int seriesId)
         {
             var sw = Stopwatch.StartNew();
             var library = Task.Run(() => _unitOfWork.LibraryRepository.GetFullLibraryForIdAsync(libraryId)).GetAwaiter().GetResult();
@@ -230,13 +239,30 @@ namespace API.Services
             }
 
             UpdateMetadata(series, true);
+            var hasChanges = _unitOfWork.HasChanges();
             _unitOfWork.SeriesRepository.Update(series);
+            // Send update to anyone that this series cover has updated
+            await SendUpdate(series, hasChanges);
 
 
             if (_unitOfWork.HasChanges() && Task.Run(() => _unitOfWork.CommitAsync()).Result)
             {
                 _logger.LogInformation("Updated metadata for {SeriesName} in {ElapsedMilliseconds} milliseconds", series.Name, sw.ElapsedMilliseconds);
             }
+        }
+
+        private async Task SendUpdate(Series series, bool hasUpdates)
+        {
+            await _messageHub.Clients.All.SendAsync("RefreshMetadata", new SignalRMessage
+            {
+                Name = "RefreshMetadata",
+                Body = new
+                {
+                    SeriesName = series.Name,
+                    SeriesId = series.Id,
+                    HasUpdates = hasUpdates
+                }
+            });
         }
     }
 }
