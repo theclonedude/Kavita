@@ -668,6 +668,7 @@
         "license-valid": "License is Valid",
         "license-not-valid": "License Not Valid",
         "loading": "{{common.loading}}",
+        "help-label": "{{common.help}}",
 
         "activate-description": "Enter the License Key and Email used to register with Stripe",
         "activate-license-label": "License Key",
@@ -1071,7 +1072,12 @@
         "imprints-title": "{{metadata-fields.imprints-title}}",
         "genres-title": "{{metadata-fields.genres-title}}",
         "tags-title": "{{metadata-fields.tags-title}}",
-        "weblinks-title": "{{tabs.weblink-tab}}"
+        "weblinks-title": "{{tabs.weblink-tab}}",
+        "read-time-title": "{{edit-chapter-modal.reading-time-label}}",
+        "language-title": "{{edit-chapter-modal.language-label}}",
+        "release-title": "{{sort-field-pipe.release-year}}",
+        "format-title": "{{metadata-filter.format-label}}",
+        "length-title": "{{edit-chapter-modal.words-label}}"
     },
 
     "related-tab": {
@@ -1126,7 +1132,9 @@
         "special": "Special",
         "issue-num": "{{common.issue-hash-num}}",
         "chapter": "{{common.chapter-num}}",
-        "book-num": "{{common.book-num-shorthand}}"
+        "book-num": "{{common.book-num-shorthand}}",
+        "vol-num": "{{user-scrobble-history.volume-num}}",
+        "single-volume": "Single Volume"
     },
 
     "external-series-card": {
@@ -1691,6 +1699,7 @@
     "import-cbl-modal": {
         "close": "{{common.close}}",
         "title": "CBL Import",
+        "help-label": "{{common.help}}",
         "import-description": "To get started, import a .cbl file. Kavita will perform multiple checks before importing. Some steps will block moving forward due to issues with the file.",
         "validate-description": "All files have been validated to see if there are any operations to do on the list. Any lists that have failed will not move to the next step. Fix the CBL files and retry.",
         "validate-warning": "There are issues with the CBL that will prevent an import. Correct these issues then try again.",
