@@ -2024,13 +2024,19 @@
         "name-label": "{{edit-series-modal.name-label}}",
         "role-label": "Role",
         "mal-id-label": "MAL Id",
+        "mal-tooltip": "https://myanimelist.net/people/{MalId}/",
         "anilist-id-label": "AniList Id",
+        "anilist-tooltip": "https://anilist.co/staff/{AniListId}/",
         "hardcover-id-label": "Hardcover Id",
+        "hardcover-tooltip": "https://hardcover.app/authors/{HardcoverId}",
         "asin-label": "ASIN",
+        "asin-tooltip": "https://www.amazon.com/stores/J.K.-Rowling/author/{ASIN}",
         "description-label": "Description",
         "required-field": "{{validations.required-field}}",
         "cover-image-description": "{{edit-series-modal.cover-image-description}}",
-        "save": "{{common.save}}"
+        "cover-image-description-extra": "Alternatively you can download a cover from CoversDB if available.",
+        "save": "{{common.save}}",
+        "download-coversdb": "Download from CoversDB"
     },
 
     "day-breakdown": {
@@ -2424,7 +2430,8 @@
         "confirm-reset-server-settings": "This will reset your settings to first install values. Are you sure you want to continue?",
         "must-select-library": "At least one library must be selected",
         "bulk-scan": "Scanning multiple libraries will be done linearly. This may take a long time and not complete depending on library size.",
-        "bulk-covers": "Refreshing covers on multiple libraries is intensive and can take a long time. Are you sure you want to continue?"
+        "bulk-covers": "Refreshing covers on multiple libraries is intensive and can take a long time. Are you sure you want to continue?",
+        "person-image-downloaded": "Person cover was downloaded and applied."
     },
 
     "read-time-pipe": {
