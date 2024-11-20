@@ -13,7 +13,6 @@ import {
   Component,
   DestroyRef,
   ElementRef,
-  HostListener,
   Inject,
   inject,
   OnInit,
@@ -37,7 +36,7 @@ import {
   NgbTooltip
 } from '@ng-bootstrap/ng-bootstrap';
 import {ToastrService} from 'ngx-toastr';
-import {catchError, forkJoin, Observable, of, tap} from 'rxjs';
+import {catchError, debounceTime, forkJoin, Observable, of, ReplaySubject, tap} from 'rxjs';
 import {map} from 'rxjs/operators';
 import {BulkSelectionService} from 'src/app/cards/bulk-selection.service';
 import {
@@ -45,7 +44,7 @@ import {
   EditSeriesModalComponent
 } from 'src/app/cards/_modals/edit-series-modal/edit-series-modal.component';
 import {DownloadEvent, DownloadService} from 'src/app/shared/_services/download.service';
-import {Breakpoint, KEY_CODES, UtilityService} from 'src/app/shared/_services/utility.service';
+import {Breakpoint, UtilityService} from 'src/app/shared/_services/utility.service';
 import {Chapter, LooseLeafOrDefaultNumber, SpecialVolumeNumber} from 'src/app/_models/chapter';
 import {Device} from 'src/app/_models/device/device';
 import {ScanSeriesEvent} from 'src/app/_models/events/scan-series-event';
@@ -247,6 +246,8 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
   downloadInProgress: boolean = false;
 
   nextExpectedChapter: NextExpectedChapter | undefined;
+  loadPageSource = new ReplaySubject<boolean>(1);
+  loadPage$ = this.loadPageSource.asObservable();
 
   /**
    * Track by function for Volume to tell when to refresh card data
@@ -256,14 +257,6 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
    * Track by function for Chapter to tell when to refresh card data
    */
   trackByChapterIdentity = (index: number, item: Chapter) => `${item.title}_${item.minNumber}_${item.maxNumber}_${item.volumeId}_${item.pagesRead}`;
-  trackByRelatedSeriesIdentify = (index: number, item: RelatedSeriesPair) => `${item.series.name}_${item.series.libraryId}_${item.series.pagesRead}_${item.relation}`;
-  trackBySeriesIdentify = (index: number, item: Series) => `${item.name}_${item.libraryId}_${item.pagesRead}`;
-  trackByStoryLineIdentity = (index: number, item: StoryLineItem) => {
-    if (item.isChapter) {
-      return this.trackByChapterIdentity(index, item!.chapter!)
-    }
-    return this.trackByVolumeIdentity(index, item!.volume!);
-  };
 
   /**
    * Are there any related series
@@ -307,7 +300,7 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
    */
   download$: Observable<DownloadEvent | null> | null = null;
 
-  bulkActionCallback = (action: ActionItem<any>, data: any) => {
+  bulkActionCallback = async (action: ActionItem<any>, data: any) => {
     if (this.series === undefined) {
       return;
     }
@@ -351,6 +344,19 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
         this.actionService.markMultipleAsUnread(seriesId, selectedVolumeIds, chapters,  () => {
           this.setContinuePoint();
           // TODO: BUG: This doesn't update series pagesRead
+          this.bulkSelectionService.deselectAll();
+          this.cdRef.markForCheck();
+        });
+        break;
+      case Action.SendTo:
+        const device = (action._extra!.data as Device);
+        this.actionService.sendToDevice(chapters.map(c => c.id), device);
+        this.bulkSelectionService.deselectAll();
+        this.cdRef.markForCheck();
+        break;
+      case Action.Delete:
+        await this.actionService.deleteMultipleChapters(seriesId, chapters, () => {
+          // No need to update the page as the backend will spam volume/chapter deletions
           this.bulkSelectionService.deselectAll();
           this.cdRef.markForCheck();
         });
@@ -459,6 +465,8 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
       return this.downloadService.mapToEntityType(events, this.series);
     }));
 
+    this.loadPage$.pipe(takeUntilDestroyed(this.destroyRef), debounceTime(300), tap(val => this.loadSeries(this.seriesId, val))).subscribe();
+
     this.messageHub.messages$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(event => {
       if (event.event === EVENTS.SeriesRemoved) {
         const seriesRemovedEvent = event.payload as SeriesRemovedEvent;
@@ -469,7 +477,8 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
       } else if (event.event === EVENTS.ScanSeries) {
         const seriesScanEvent = event.payload as ScanSeriesEvent;
         if (seriesScanEvent.seriesId === this.seriesId) {
-          this.loadSeries(this.seriesId);
+          //this.loadSeries(this.seriesId);
+          this.loadPageSource.next(false);
         }
       } else if (event.event === EVENTS.CoverUpdate) {
         const coverUpdateEvent = event.payload as CoverUpdateEvent;
@@ -479,7 +488,8 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
       } else if (event.event === EVENTS.ChapterRemoved) {
         const removedEvent = event.payload as ChapterRemovedEvent;
         if (removedEvent.seriesId !== this.seriesId) return;
-        this.loadSeries(this.seriesId, false);
+        //this.loadSeries(this.seriesId, false);
+        this.loadPageSource.next(false);
       }
     });
 
@@ -508,7 +518,8 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
       }
     }), takeUntilDestroyed(this.destroyRef)).subscribe();
 
-    this.loadSeries(this.seriesId, true);
+    //this.loadSeries(this.seriesId, true);
+    this.loadPageSource.next(true);
 
     this.pageExtrasGroup.get('renderMode')?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((val: PageLayoutMode | null) => {
       if (val == null) return;
@@ -535,12 +546,12 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
     switch(action.action) {
       case(Action.MarkAsRead):
         this.actionService.markSeriesAsRead(series, (series: Series) => {
-          this.loadSeries(series.id);
+          this.loadPageSource.next(false);
         });
         break;
       case(Action.MarkAsUnread):
         this.actionService.markSeriesAsUnread(series, (series: Series) => {
-          this.loadSeries(series.id);
+          this.loadPageSource.next(false);
         });
         break;
       case(Action.Scan):
@@ -600,7 +611,7 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
       case(Action.Delete):
         await this.actionService.deleteVolume(volume.id, (b) => {
           if (!b) return;
-          this.loadSeries(this.seriesId, false);
+          this.loadPageSource.next(false);
         });
         break;
       case(Action.AddToReadingList):
@@ -1010,7 +1021,7 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
 
     ref.closed.subscribe((res: EditChapterModalCloseResult) => {
       if (res.success && res.isDeleted) {
-        this.loadSeries(this.seriesId, false);
+        this.loadPageSource.next(false);
       }
     });
   }
@@ -1024,7 +1035,7 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
 
     ref.closed.subscribe((res: EditChapterModalCloseResult) => {
       if (res.success && res.isDeleted) {
-        this.loadSeries(this.seriesId, false);
+        this.loadPageSource.next(false);
       }
     });
   }
@@ -1035,9 +1046,9 @@ export class SeriesDetailComponent implements OnInit, AfterContentChecked {
     modalRef.closed.subscribe((closeResult: EditSeriesModalCloseResult) => {
       if (closeResult.success) {
         window.scrollTo(0, 0);
-        this.loadSeries(this.seriesId, closeResult.updateExternal);
+        this.loadPageSource.next(closeResult.updateExternal);
       } else if (closeResult.updateExternal) {
-        this.loadSeries(this.seriesId, closeResult.updateExternal);
+        this.loadPageSource.next(closeResult.updateExternal);
       }
     });
   }
