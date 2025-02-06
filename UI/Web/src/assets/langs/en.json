@@ -763,6 +763,7 @@
         "matched-status-label": "Matched",
         "unmatched-status-label": "Not Matched",
         "blacklist-status-label": "Needs Manual Match",
+        "dont-match-status-label": "{{dont-match-label}}",
         "all-status-label": "All",
         "dont-match-label": "Don't Match",
         "no-data": "{{common.no-data}}"
@@ -1071,7 +1072,8 @@
         "individual-role-title": "As a {{role}}",
         "browse-person-title": "All Works of {{name}}",
         "browse-person-by-role-title": "All Works of {{name}} as a {{role}}",
-        "all-roles": "Roles"
+        "all-roles": "Roles",
+        "anilist-url": "{{edit-person-modal.anilist-tooltip}}"
     },
 
     "library-settings-modal": {
@@ -2677,7 +2679,7 @@
         "title": "Actions",
         "copy-settings": "Copy Settings From",
         "match": "Match",
-        "match-description": "Match Series with Kavita+ manually"
+        "match-tooltip": "Match Series with Kavita+ manually"
     },
 
     "preferences": {

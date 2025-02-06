@@ -195,6 +195,7 @@ public class ExternalMetadataService : IExternalMetadataService
         var license = (await _unitOfWork.SettingsRepository.GetSettingAsync(ServerSettingKey.LicenseKey)).Value;
         var series = await _unitOfWork.SeriesRepository.GetSeriesByIdAsync(dto.SeriesId,
             SeriesIncludes.Metadata | SeriesIncludes.ExternalMetadata);
+        if (series == null) return [];
 
         var potentialAnilistId = ScrobblingService.ExtractId<int?>(dto.Query, ScrobblingService.AniListWeblinkWebsite);
         var potentialMalId = ScrobblingService.ExtractId<long?>(dto.Query, ScrobblingService.MalWeblinkWebsite);
@@ -512,7 +513,7 @@ public class ExternalMetadataService : IExternalMetadataService
             madeModification = true;
         }
 
-        if (settings.EnableStartDate && externalMetadata.StartDate.HasValue)
+        if (settings.EnableStartDate && !series.Metadata.ReleaseYearLocked && externalMetadata.StartDate.HasValue)
         {
             series.Metadata.ReleaseYear = externalMetadata.StartDate.Value.Year;
             madeModification = true;
@@ -526,7 +527,7 @@ public class ExternalMetadataService : IExternalMetadataService
         // Process Genres
         if (externalMetadata.Genres != null)
         {
-            foreach (var genre in externalMetadata.Genres.Where(g => !settings.Blacklist.Contains(g)))
+            foreach (var genre in externalMetadata.Genres)
             {
                 // Apply field mappings
                 var mappedGenre = ApplyFieldMapping(genre, MetadataFieldType.Genre, settings.FieldMappings);
@@ -537,9 +538,12 @@ public class ExternalMetadataService : IExternalMetadataService
             }
 
             // Strip blacklisted items from processedGenres
-            processedGenres = processedGenres.Distinct().Where(g => !settings.Blacklist.Contains(g)).ToList();
+            processedGenres = processedGenres
+                .Distinct()
+                .Where(g => !settings.Blacklist.Contains(g))
+                .ToList();
 
-            if (settings.EnableGenres && processedGenres.Count > 0)
+            if (settings.EnableGenres && !series.Metadata.GenresLocked && processedGenres.Count > 0)
             {
                 _logger.LogDebug("Found {GenreCount} genres for {SeriesName}", processedGenres.Count, series.Name);
                 var allGenres = (await _unitOfWork.GenreRepository.GetAllGenresByNamesAsync(processedGenres.Select(Parser.Normalize))).ToList();
@@ -567,13 +571,14 @@ public class ExternalMetadataService : IExternalMetadataService
             }
 
             // Strip blacklisted items from processedTags
-            processedTags = processedTags.Distinct()
+            processedTags = processedTags
+                .Distinct()
                 .Where(g => !settings.Blacklist.Contains(g))
                 .Where(g => settings.Whitelist.Count == 0 || settings.Whitelist.Contains(g))
                 .ToList();
 
             // Set the tags for the series and ensure they are in the DB
-            if (settings.EnableTags && processedTags.Count > 0)
+            if (settings.EnableTags && !series.Metadata.TagsLocked && processedTags.Count > 0)
             {
                 _logger.LogDebug("Found {TagCount} tags for {SeriesName}", processedTags.Count, series.Name);
                 var allTags = (await _unitOfWork.TagRepository.GetAllTagsByNameAsync(processedTags.Select(Parser.Normalize)))
@@ -591,22 +596,36 @@ public class ExternalMetadataService : IExternalMetadataService
 
         #region Age Rating
 
-        // Determine Age Rating
-        var ageRating = DetermineAgeRating(processedGenres.Concat(processedTags), settings.AgeRatingMappings);
-        if (!series.Metadata.AgeRatingLocked && series.Metadata.AgeRating <= ageRating)
+        if (!series.Metadata.AgeRatingLocked)
         {
-            series.Metadata.AgeRating = ageRating;
-            _unitOfWork.SeriesRepository.Update(series);
-            madeModification = true;
-        }
+            try
+            {
+                // Determine Age Rating
+                var totalTags = processedGenres
+                    .Concat(processedTags)
+                    .Concat(series.Metadata.Genres.Select(g => g.Title))
+                    .Concat(series.Metadata.Tags.Select(g => g.Title));
 
+                var ageRating = DetermineAgeRating(totalTags, settings.AgeRatingMappings);
+                if (!series.Metadata.AgeRatingLocked && series.Metadata.AgeRating <= ageRating)
+                {
+                    series.Metadata.AgeRating = ageRating;
+                    _unitOfWork.SeriesRepository.Update(series);
+                    madeModification = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "There was an issue determining Age Rating for Series {SeriesName} ({SeriesId})", series.Name, series.Id);
+            }
+        }
         #endregion
 
         #region People
 
         if (settings.EnablePeople)
         {
-            series.Metadata.People ??= new List<SeriesMetadataPeople>();
+            series.Metadata.People ??= [];
 
             // Ensure all people are named correctly
             externalMetadata.Staff = externalMetadata.Staff.Select(s =>
@@ -635,7 +654,10 @@ public class ExternalMetadataService : IExternalMetadataService
                     Name = w.Name,
                     AniListId = ScrobblingService.ExtractId<int>(w.Url, ScrobblingService.AniListStaffWebsite),
                     Description = CleanSummary(w.Description),
-                }).ToList();
+                })
+                .Concat(series.Metadata.People.Where(p => p.Role == PersonRole.Writer).Select(p => _mapper.Map<PersonDto>(p)))
+                .DistinctBy(p => Parser.Normalize(p.Name))
+                .ToList();
 
 
             // NOTE: PersonRoles can be a hashset
@@ -661,7 +683,10 @@ public class ExternalMetadataService : IExternalMetadataService
                     Name = w.Name,
                     AniListId = ScrobblingService.ExtractId<int>(w.Url, ScrobblingService.AniListStaffWebsite),
                     Description = CleanSummary(w.Description),
-                }).ToList();
+                })
+                .Concat(series.Metadata.People.Where(p => p.Role == PersonRole.CoverArtist).Select(p => _mapper.Map<PersonDto>(p)))
+                .DistinctBy(p => Parser.Normalize(p.Name))
+                .ToList();
 
             if (!series.Metadata.CoverArtistLocked && artists.Count > 0 &&  settings.PersonRoles.Contains(PersonRole.CoverArtist))
             {
@@ -684,7 +709,10 @@ public class ExternalMetadataService : IExternalMetadataService
                         Name = w.Name,
                         AniListId = ScrobblingService.ExtractId<int>(w.Url, ScrobblingService.AniListCharacterWebsite),
                         Description = CleanSummary(w.Description),
-                    }).ToList();
+                    })
+                    .Concat(series.Metadata.People.Where(p => p.Role == PersonRole.Character).Select(p => _mapper.Map<PersonDto>(p)))
+                    .DistinctBy(p => Parser.Normalize(p.Name))
+                    .ToList();
 
 
                 if (!series.Metadata.CharacterLocked && characters.Count > 0)
@@ -713,13 +741,27 @@ public class ExternalMetadataService : IExternalMetadataService
 
         #endregion
 
+        #region Publication Status
+
         if (!series.Metadata.PublicationStatusLocked && settings.EnablePublicationStatus)
         {
-            var chapters = (await _unitOfWork.SeriesRepository.GetSeriesByIdAsync(series.Id, SeriesIncludes.Chapters))!.Volumes.SelectMany(v => v.Chapters).ToList();
-            var wasChanged = DeterminePublicationStatus(series, chapters, externalMetadata);
-            _unitOfWork.SeriesRepository.Update(series);
-            madeModification = madeModification || wasChanged;
+            try
+            {
+                var chapters =
+                    (await _unitOfWork.SeriesRepository.GetSeriesByIdAsync(series.Id, SeriesIncludes.Chapters))!.Volumes
+                    .SelectMany(v => v.Chapters).ToList();
+                var wasChanged = DeterminePublicationStatus(series, chapters, externalMetadata);
+                _unitOfWork.SeriesRepository.Update(series);
+                madeModification = madeModification || wasChanged;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "There was an issue determining Publication Status for Series {SeriesName} ({SeriesId})", series.Name, series.Id);
+            }
         }
+        #endregion
+
+        #region Relationships
 
         if (settings.EnableRelationships && externalMetadata.Relations != null && defaultAdmin != null)
         {
@@ -773,6 +815,7 @@ public class ExternalMetadataService : IExternalMetadataService
                 madeModification = true;
             }
         }
+        #endregion
 
         return madeModification;
     }
@@ -889,6 +932,8 @@ public class ExternalMetadataService : IExternalMetadataService
     private static AgeRating DetermineAgeRating(IEnumerable<string> values, Dictionary<string, AgeRating> mappings)
     {
         // Find highest age rating from mappings
+        mappings ??= new Dictionary<string, AgeRating>();
+
         return values
             .Select(v => mappings.TryGetValue(v, out var mapping) ? mapping : AgeRating.Unknown)
             .DefaultIfEmpty(AgeRating.Unknown)
@@ -913,6 +958,7 @@ public class ExternalMetadataService : IExternalMetadataService
         };
         series.ExternalSeriesMetadata = externalSeriesMetadata;
         _unitOfWork.ExternalSeriesMetadataRepository.Attach(externalSeriesMetadata);
+
         return externalSeriesMetadata;
     }
 
