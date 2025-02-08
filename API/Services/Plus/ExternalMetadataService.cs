@@ -45,7 +45,7 @@ public interface IExternalMetadataService
     /// <param name="seriesId"></param>
     /// <param name="libraryType"></param>
     /// <returns></returns>
-    Task GetNewSeriesData(int seriesId, LibraryType libraryType);
+    Task FetchSeriesMetadata(int seriesId, LibraryType libraryType);
 
     Task<IList<MalStackDto>> GetStacksForUser(int userId);
     Task<IList<ExternalSeriesMatchDto>> MatchSeries(MatchSeriesDto dto);
@@ -118,7 +118,7 @@ public class ExternalMetadataService : IExternalMetadataService
         foreach (var seriesId in ids)
         {
             var libraryType = libTypes[seriesId];
-            await GetNewSeriesData(seriesId, libraryType);
+            await FetchSeriesMetadata(seriesId, libraryType);
             await Task.Delay(1500);
             count++;
         }
@@ -131,7 +131,7 @@ public class ExternalMetadataService : IExternalMetadataService
     /// </summary>
     /// <param name="seriesId"></param>
     /// <param name="libraryType"></param>
-    public async Task GetNewSeriesData(int seriesId, LibraryType libraryType)
+    public async Task FetchSeriesMetadata(int seriesId, LibraryType libraryType)
     {
         if (!IsPlusEligible(libraryType)) return;
         if (!await _licenseService.HasActiveLicense()) return;
@@ -146,8 +146,9 @@ public class ExternalMetadataService : IExternalMetadataService
         }
 
         _logger.LogDebug("Prefetching Kavita+ data for Series {SeriesId}", seriesId);
+
         // Prefetch SeriesDetail data
-        var metadata = await GetSeriesDetailPlus(seriesId, libraryType);
+        await GetSeriesDetailPlus(seriesId, libraryType);
 
     }
 
@@ -211,7 +212,7 @@ public class ExternalMetadataService : IExternalMetadataService
             Format = series.Format == MangaFormat.Epub ? PlusMediaFormat.LightNovel : PlusMediaFormat.Manga,
             Query = dto.Query,
             SeriesName = series.Name,
-            AlternativeNames = altNames,
+            AlternativeNames = altNames.Where(s => !string.IsNullOrEmpty(s)).ToList(),
             Year = series.Metadata.ReleaseYear,
             AniListId = potentialAnilistId ?? ScrobblingService.GetAniListId(series),
             MalId = potentialMalId ?? ScrobblingService.GetMalId(series),
@@ -403,7 +404,7 @@ public class ExternalMetadataService : IExternalMetadataService
             var result = await (Configuration.KavitaPlusApiUrl + "/api/metadata/v2/series-detail")
                 .WithKavitaPlusHeaders(license)
                 .PostJsonAsync(data)
-                .ReceiveJson<SeriesDetailPlusApiDto>();
+                .ReceiveJson<SeriesDetailPlusApiDto>(); // This returns an AniListSeries and Match returns ExternalSeriesDto
 
 
             // Clear out existing results
@@ -446,6 +447,8 @@ public class ExternalMetadataService : IExternalMetadataService
             var madeMetadataModification = false;
             if (result.Series != null && series.Library.AllowMetadataMatching)
             {
+                externalSeriesMetadata.Series = await _unitOfWork.SeriesRepository.GetSeriesByIdAsync(seriesId);
+
                 madeMetadataModification = await WriteExternalMetadataToSeries(result.Series, seriesId);
                 if (madeMetadataModification)
                 {
@@ -499,21 +502,41 @@ public class ExternalMetadataService : IExternalMetadataService
     {
         var settings = await _unitOfWork.SettingsRepository.GetMetadataSettingDto();
         if (!settings.Enabled) return false;
+
         var series = await _unitOfWork.SeriesRepository.GetSeriesByIdAsync(seriesId, SeriesIncludes.Metadata | SeriesIncludes.Related);
         if (series == null) return false;
+
         var defaultAdmin = await _unitOfWork.UserRepository.GetDefaultAdminUser();
 
         _logger.LogInformation("Writing External metadata to Series {SeriesName}", series.Name);
 
         var madeModification = false;
 
-        if (!series.Metadata.SummaryLocked && string.IsNullOrEmpty(series.Metadata.Summary) && settings.EnableSummary)
+        if (settings.EnableLocalizedName && (!series.LocalizedNameLocked || settings.HasOverride(MetadataSettingField.LocalizedName)))
+        {
+            // We need to make the best appropriate guess
+            if (externalMetadata.Name == series.Name)
+            {
+                // Choose closest (usually last) synonym
+                series.LocalizedName = externalMetadata.Synonyms.Last();
+            }
+            else
+            {
+                series.LocalizedName = externalMetadata.Name;
+            }
+
+            madeModification = true;
+        }
+
+        if (settings.EnableSummary && (!series.Metadata.SummaryLocked ||
+                                       settings.HasOverride(MetadataSettingField.Summary)))
         {
             series.Metadata.Summary = CleanSummary(externalMetadata.Summary);
             madeModification = true;
         }
 
-        if (settings.EnableStartDate && !series.Metadata.ReleaseYearLocked && externalMetadata.StartDate.HasValue)
+        if (settings.EnableStartDate && externalMetadata.StartDate.HasValue && (!series.Metadata.ReleaseYearLocked ||
+                settings.HasOverride(MetadataSettingField.StartDate)))
         {
             series.Metadata.ReleaseYear = externalMetadata.StartDate.Value.Year;
             madeModification = true;
@@ -543,7 +566,7 @@ public class ExternalMetadataService : IExternalMetadataService
                 .Where(g => !settings.Blacklist.Contains(g))
                 .ToList();
 
-            if (settings.EnableGenres && !series.Metadata.GenresLocked && processedGenres.Count > 0)
+            if (settings.EnableGenres && processedGenres.Count > 0 && (!series.Metadata.GenresLocked || settings.HasOverride(MetadataSettingField.Genres)))
             {
                 _logger.LogDebug("Found {GenreCount} genres for {SeriesName}", processedGenres.Count, series.Name);
                 var allGenres = (await _unitOfWork.GenreRepository.GetAllGenresByNamesAsync(processedGenres.Select(Parser.Normalize))).ToList();
@@ -578,7 +601,7 @@ public class ExternalMetadataService : IExternalMetadataService
                 .ToList();
 
             // Set the tags for the series and ensure they are in the DB
-            if (settings.EnableTags && !series.Metadata.TagsLocked && processedTags.Count > 0)
+            if (settings.EnableTags && processedTags.Count > 0 && (!series.Metadata.TagsLocked || settings.HasOverride(MetadataSettingField.Tags)))
             {
                 _logger.LogDebug("Found {TagCount} tags for {SeriesName}", processedTags.Count, series.Name);
                 var allTags = (await _unitOfWork.TagRepository.GetAllTagsByNameAsync(processedTags.Select(Parser.Normalize)))
@@ -596,7 +619,7 @@ public class ExternalMetadataService : IExternalMetadataService
 
         #region Age Rating
 
-        if (!series.Metadata.AgeRatingLocked)
+        if (!series.Metadata.AgeRatingLocked || settings.HasOverride(MetadataSettingField.AgeRating))
         {
             try
             {
@@ -644,64 +667,92 @@ public class ExternalMetadataService : IExternalMetadataService
 
             // Roles: Character Design, Story, Art
 
-            var allWriters = externalMetadata.Staff
+            var upstreamWriters = externalMetadata.Staff
                 .Where(s => s.Role is "Story" or "Story & Art")
                 .ToList();
 
-            var writers = allWriters
+            var writers = upstreamWriters
                 .Select(w => new PersonDto()
                 {
                     Name = w.Name,
                     AniListId = ScrobblingService.ExtractId<int>(w.Url, ScrobblingService.AniListStaffWebsite),
                     Description = CleanSummary(w.Description),
                 })
-                .Concat(series.Metadata.People.Where(p => p.Role == PersonRole.Writer).Select(p => _mapper.Map<PersonDto>(p)))
+                .Concat(series.Metadata.People
+                    .Where(p => p.Role == PersonRole.Writer)
+                    .Where(p => !p.KavitaPlusConnection)
+                    .Select(p => _mapper.Map<PersonDto>(p.Person))
+                )
                 .DistinctBy(p => Parser.Normalize(p.Name))
                 .ToList();
 
 
             // NOTE: PersonRoles can be a hashset
-            if (!series.Metadata.WriterLocked && writers.Count > 0 && settings.PersonRoles.Contains(PersonRole.Writer))
+            if (writers.Count > 0 && settings.IsPersonAllowed(PersonRole.Writer) && (!series.Metadata.WriterLocked || settings.HasOverride(MetadataSettingField.People)))
             {
                 await SeriesService.HandlePeopleUpdateAsync(series.Metadata, writers, PersonRole.Writer, _unitOfWork);
+
+                foreach (var person in series.Metadata.People.Where(p => p.Role == PersonRole.Writer))
+                {
+                    var meta = upstreamWriters.FirstOrDefault(c => c.Name == person.Person.Name);
+                    person.OrderWeight = 0;
+                    if (meta != null)
+                    {
+                        person.KavitaPlusConnection = true;
+                    }
+                }
 
                 _unitOfWork.SeriesRepository.Update(series);
                 await _unitOfWork.CommitAsync();
 
-                await DownloadAndSetCovers(allWriters);
+                await DownloadAndSetCovers(upstreamWriters);
 
                 madeModification = true;
             }
 
-            var allArtists = externalMetadata.Staff
+            var upstreamArtists = externalMetadata.Staff
                 .Where(s => s.Role is "Art" or "Story & Art")
                 .ToList();
 
-            var artists = allArtists
+            var artists = upstreamArtists
                 .Select(w => new PersonDto()
                 {
                     Name = w.Name,
                     AniListId = ScrobblingService.ExtractId<int>(w.Url, ScrobblingService.AniListStaffWebsite),
                     Description = CleanSummary(w.Description),
                 })
-                .Concat(series.Metadata.People.Where(p => p.Role == PersonRole.CoverArtist).Select(p => _mapper.Map<PersonDto>(p)))
+                .Concat(series.Metadata.People
+                    .Where(p => p.Role == PersonRole.CoverArtist)
+                    .Where(p => !p.KavitaPlusConnection)
+                    .Select(p => _mapper.Map<PersonDto>(p.Person))
+                )
                 .DistinctBy(p => Parser.Normalize(p.Name))
                 .ToList();
 
-            if (!series.Metadata.CoverArtistLocked && artists.Count > 0 &&  settings.PersonRoles.Contains(PersonRole.CoverArtist))
+            if (artists.Count > 0 &&  settings.IsPersonAllowed(PersonRole.CoverArtist) && (!series.Metadata.CoverArtistLocked || settings.HasOverride(MetadataSettingField.People)))
             {
                 await SeriesService.HandlePeopleUpdateAsync(series.Metadata, artists, PersonRole.CoverArtist, _unitOfWork);
+                foreach (var person in series.Metadata.People.Where(p => p.Role == PersonRole.CoverArtist))
+                {
+                    var meta = upstreamArtists.FirstOrDefault(c => c.Name == person.Person.Name);
+                    person.OrderWeight = 0;
+                    if (meta != null)
+                    {
+                        person.KavitaPlusConnection = true;
+                    }
+                }
 
                 // Download the image and save it
                 _unitOfWork.SeriesRepository.Update(series);
                 await _unitOfWork.CommitAsync();
 
-                await DownloadAndSetCovers(allArtists);
+                await DownloadAndSetCovers(upstreamArtists);
 
                 madeModification = true;
             }
 
-            if (externalMetadata.Characters != null && settings.PersonRoles.Contains(PersonRole.Character))
+            if (externalMetadata.Characters != null && settings.IsPersonAllowed(PersonRole.Character) && (!series.Metadata.CharacterLocked ||
+                    settings.HasOverride(MetadataSettingField.People)))
             {
                 var characters = externalMetadata.Characters
                     .Select(w => new PersonDto()
@@ -710,27 +761,50 @@ public class ExternalMetadataService : IExternalMetadataService
                         AniListId = ScrobblingService.ExtractId<int>(w.Url, ScrobblingService.AniListCharacterWebsite),
                         Description = CleanSummary(w.Description),
                     })
-                    .Concat(series.Metadata.People.Where(p => p.Role == PersonRole.Character).Select(p => _mapper.Map<PersonDto>(p)))
+                    .Concat(series.Metadata.People
+                        .Where(p => p.Role == PersonRole.Character)
+                        // Need to ensure existing people are retained, but we overwrite anything from a bad match
+                        .Where(p => !p.KavitaPlusConnection)
+                        .Select(p => _mapper.Map<PersonDto>(p.Person))
+                    )
                     .DistinctBy(p => Parser.Normalize(p.Name))
                     .ToList();
 
 
-                if (!series.Metadata.CharacterLocked && characters.Count > 0)
+                if (characters.Count > 0)
                 {
                     await SeriesService.HandlePeopleUpdateAsync(series.Metadata, characters, PersonRole.Character, _unitOfWork);
+                    foreach (var spPerson in series.Metadata.People.Where(p => p.Role == PersonRole.Character))
+                    {
+                        // Set a sort order based on their role
+                        var characterMeta = externalMetadata.Characters?.FirstOrDefault(c => c.Name == spPerson.Person.Name);
+                        spPerson.OrderWeight = 0;
+                        if (characterMeta != null)
+                        {
+                            spPerson.KavitaPlusConnection = true;
+
+                            spPerson.OrderWeight = characterMeta.Role switch
+                            {
+                                CharacterRole.Main => 0,
+                                CharacterRole.Supporting => 1,
+                                CharacterRole.Background => 2,
+                                _ => 99 // Default for unknown roles
+                            };
+                        }
+                    }
 
                     // Download the image and save it
                     _unitOfWork.SeriesRepository.Update(series);
                     await _unitOfWork.CommitAsync();
 
-                    foreach (var character in externalMetadata.Characters)
+                    foreach (var character in externalMetadata.Characters ?? [])
                     {
                         var aniListId = ScrobblingService.ExtractId<int>(character.Url, ScrobblingService.AniListCharacterWebsite);
                         if (aniListId <= 0) continue;
                         var person = await _unitOfWork.PersonRepository.GetPersonByAniListId(aniListId);
                         if (person != null && !string.IsNullOrEmpty(character.ImageUrl) && string.IsNullOrEmpty(person.CoverImage))
                         {
-                            await _coverDbService.SetPersonCoverImage(person, character.ImageUrl, false);
+                            await _coverDbService.SetPersonCoverByUrl(person, character.ImageUrl, false);
                         }
                     }
 
@@ -743,7 +817,8 @@ public class ExternalMetadataService : IExternalMetadataService
 
         #region Publication Status
 
-        if (!series.Metadata.PublicationStatusLocked && settings.EnablePublicationStatus)
+        if (settings.EnablePublicationStatus && (!series.Metadata.PublicationStatusLocked ||
+                settings.HasOverride(MetadataSettingField.PublicationStatus)))
         {
             try
             {
@@ -765,7 +840,6 @@ public class ExternalMetadataService : IExternalMetadataService
 
         if (settings.EnableRelationships && externalMetadata.Relations != null && defaultAdmin != null)
         {
-
             foreach (var relation in externalMetadata.Relations)
             {
                 var relatedSeries = await _unitOfWork.SeriesRepository.GetSeriesByAnyName(
@@ -817,8 +891,19 @@ public class ExternalMetadataService : IExternalMetadataService
         }
         #endregion
 
+        #region Series Cover
+
+        // This must not allow cover image locked to be off after downloading, else it will call every time a match is hit
+        if (!string.IsNullOrEmpty(externalMetadata.CoverUrl) && (!series.CoverImageLocked || settings.HasOverride(MetadataSettingField.Covers)))
+        {
+            await DownloadSeriesCovers(series, externalMetadata.CoverUrl);
+        }
+
+        #endregion
+
         return madeModification;
     }
+
 
     private static RelationKind GetReverseRelation(RelationKind relation)
     {
@@ -830,6 +915,18 @@ public class ExternalMetadataService : IExternalMetadataService
         };
     }
 
+    private async Task DownloadSeriesCovers(Series series, string coverUrl)
+    {
+        try
+        {
+            await _coverDbService.SetSeriesCoverByUrl(series, coverUrl, false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "There was an exception downloading cover image for Series {SeriesName} ({SeriesId})", series.Name, series.Id);
+        }
+    }
+
     private async Task DownloadAndSetCovers(List<SeriesStaffDto> people)
     {
         foreach (var staff in people)
@@ -839,7 +936,7 @@ public class ExternalMetadataService : IExternalMetadataService
             var person = await _unitOfWork.PersonRepository.GetPersonByAniListId(aniListId.Value);
             if (person != null && !string.IsNullOrEmpty(staff.ImageUrl) && string.IsNullOrEmpty(person.CoverImage))
             {
-                await _coverDbService.SetPersonCoverImage(person, staff.ImageUrl, false);
+                await _coverDbService.SetPersonCoverByUrl(person, staff.ImageUrl, false);
             }
         }
     }
@@ -929,7 +1026,13 @@ public class ExternalMetadataService : IExternalMetadataService
         return mapping.DestinationValue ?? (mapping.ExcludeFromSource ? null : value);
     }
 
-    private static AgeRating DetermineAgeRating(IEnumerable<string> values, Dictionary<string, AgeRating> mappings)
+    /// <summary>
+    /// Returns the highest age rating from all tags/genres based on user-supplied mappings
+    /// </summary>
+    /// <param name="values">A combo of all tags/genres</param>
+    /// <param name="mappings"></param>
+    /// <returns></returns>
+    public static AgeRating DetermineAgeRating(IEnumerable<string> values, Dictionary<string, AgeRating> mappings)
     {
         // Find highest age rating from mappings
         mappings ??= new Dictionary<string, AgeRating>();
