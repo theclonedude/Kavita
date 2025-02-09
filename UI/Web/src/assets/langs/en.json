@@ -24,7 +24,7 @@
         "username": "{{common.username}}",
         "required": "{{validation.required-field}}",
         "email": "{{common.email}}",
-        "not-valid-email": "{{validation.valid-email}}",
+        "invalid-email-warning": "A non-valid email will block some functionalities of Kavita",
         "cancel": "{{common.cancel}}",
         "saving": "Saving…",
         "update": "Update",
@@ -821,8 +821,7 @@
         "first-last-name-tooltip": "Ensure People's names are written First then Last",
         "person-roles-label": "Roles",
         "overrides-label": "Overrides",
-        "overrides-description": "Allow Kavita to write over locked fields"
-
+        "overrides-description": "Allow Kavita to write over locked fields."
     },
 
     "book-line-overlay": {

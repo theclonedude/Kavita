@@ -16,8 +16,7 @@ import {AgeRatingDto} from "../../_models/metadata/age-rating-dto";
 import {MetadataFieldMapping, MetadataFieldType} from "../_models/metadata-settings";
 import {PersonRole} from "../../_models/metadata/person";
 import {PersonRolePipe} from "../../_pipes/person-role.pipe";
-import {NgClass} from "@angular/common";
-import {allMetadataSettingField} from "../_models/metadata-setting-field";
+import {allMetadataSettingField, MetadataSettingField} from "../_models/metadata-setting-field";
 import {MetadataSettingFiledPipe} from "../../_pipes/metadata-setting-filed.pipe";
 
 
@@ -94,7 +93,7 @@ export class ManageMetadataSettingsComponent implements OnInit {
 
       this.settingsForm.addControl('overrides', this.fb.group(
         Object.fromEntries(
-          this.allMetadataSettingFields.map((role, index) => [
+          this.allMetadataSettingFields.map((role: MetadataSettingField, index: number) => [
             `override_${index}`,
             this.fb.control((settings.overrides || []).includes(role)),
           ])
@@ -182,8 +181,8 @@ export class ManageMetadataSettingsComponent implements OnInit {
       ...model,
       ageRatingMappings,
       fieldMappings: withFieldMappings ? fieldMappings : [],
-      blacklist: (model.blacklist || '').split(',').map((item: string) => item.trim()),
-      whitelist: (model.whitelist || '').split(',').map((item: string) => item.trim()),
+      blacklist: (model.blacklist || '').split(',').map((item: string) => item.trim()).filter((tag: string) => tag.length > 0),
+      whitelist: (model.whitelist || '').split(',').map((item: string) => item.trim()).filter((tag: string) => tag.length > 0),
       personRoles: Object.entries(this.settingsForm.get('personRoles')!.value)
         .filter(([_, value]) => value)
         .map(([key, _]) => this.personRoles[parseInt(key.split('_')[1], 10)]),

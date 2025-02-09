@@ -44,8 +44,8 @@ public interface IExternalMetadataService
     /// </summary>
     /// <param name="seriesId"></param>
     /// <param name="libraryType"></param>
-    /// <returns></returns>
-    Task FetchSeriesMetadata(int seriesId, LibraryType libraryType);
+    /// <returns>If the fetch was made</returns>
+    Task<bool> FetchSeriesMetadata(int seriesId, LibraryType libraryType);
 
     Task<IList<MalStackDto>> GetStacksForUser(int userId);
     Task<IList<ExternalSeriesMatchDto>> MatchSeries(MatchSeriesDto dto);
@@ -73,6 +73,7 @@ public class ExternalMetadataService : IExternalMetadataService
     };
     // Allow 50 requests per 24 hours
     private static readonly RateLimiter RateLimiter = new RateLimiter(50, TimeSpan.FromHours(24), false);
+    static bool IsRomanCharacters(string input) => Regex.IsMatch(input, @"^[\p{IsBasicLatin}\p{IsLatin-1Supplement}]+$");
 
     public ExternalMetadataService(IUnitOfWork unitOfWork, ILogger<ExternalMetadataService> logger, IMapper mapper,
         ILicenseService licenseService, IScrobblingService scrobblingService, IEventHub eventHub, ICoverDbService coverDbService)
@@ -109,7 +110,7 @@ public class ExternalMetadataService : IExternalMetadataService
     public async Task FetchExternalDataTask()
     {
         // Find all Series that are eligible and limit
-        var ids = await _unitOfWork.ExternalSeriesMetadataRepository.GetAllSeriesIdsWithoutMetadata(25);
+        var ids = await _unitOfWork.ExternalSeriesMetadataRepository.GetSeriesThatNeedExternalMetadata(25);
         if (ids.Count == 0) return;
 
         _logger.LogInformation("[Kavita+ Data Refresh] Started Refreshing {Count} series data from Kavita+", ids.Count);
@@ -118,9 +119,9 @@ public class ExternalMetadataService : IExternalMetadataService
         foreach (var seriesId in ids)
         {
             var libraryType = libTypes[seriesId];
-            await FetchSeriesMetadata(seriesId, libraryType);
+            var success = await FetchSeriesMetadata(seriesId, libraryType);
+            if (success) count++;
             await Task.Delay(1500);
-            count++;
         }
         _logger.LogInformation("[Kavita+ Data Refresh] Finished Refreshing {Count} series data from Kavita+", count);
     }
@@ -131,10 +132,10 @@ public class ExternalMetadataService : IExternalMetadataService
     /// </summary>
     /// <param name="seriesId"></param>
     /// <param name="libraryType"></param>
-    public async Task FetchSeriesMetadata(int seriesId, LibraryType libraryType)
+    public async Task<bool> FetchSeriesMetadata(int seriesId, LibraryType libraryType)
     {
-        if (!IsPlusEligible(libraryType)) return;
-        if (!await _licenseService.HasActiveLicense()) return;
+        if (!IsPlusEligible(libraryType)) return false;
+        if (!await _licenseService.HasActiveLicense()) return false;
 
         // Generate key based on seriesId and libraryType or any unique identifier for the request
         // Check if the request is allowed based on the rate limit
@@ -142,14 +143,14 @@ public class ExternalMetadataService : IExternalMetadataService
         {
             // Request not allowed due to rate limit
             _logger.LogDebug("Rate Limit hit for Kavita+ prefetch");
-            return;
+            return false;
         }
 
         _logger.LogDebug("Prefetching Kavita+ data for Series {SeriesId}", seriesId);
 
         // Prefetch SeriesDetail data
         await GetSeriesDetailPlus(seriesId, libraryType);
-
+        return true;
     }
 
     public async Task<IList<MalStackDto>> GetStacksForUser(int userId)
@@ -512,31 +513,43 @@ public class ExternalMetadataService : IExternalMetadataService
 
         var madeModification = false;
 
-        if (settings.EnableLocalizedName && (!series.LocalizedNameLocked || settings.HasOverride(MetadataSettingField.LocalizedName)))
+        if (settings.EnableLocalizedName && (settings.HasOverride(MetadataSettingField.LocalizedName)
+                                             || !series.LocalizedNameLocked && !string.IsNullOrWhiteSpace(series.LocalizedName)))
         {
             // We need to make the best appropriate guess
             if (externalMetadata.Name == series.Name)
             {
                 // Choose closest (usually last) synonym
-                series.LocalizedName = externalMetadata.Synonyms.Last();
+                var validSynonyms = externalMetadata.Synonyms
+                    .Where(IsRomanCharacters)
+                    .Where(s => s.ToNormalized() != series.Name.ToNormalized())
+                    .ToList();
+                if (validSynonyms.Count != 0)
+                {
+                    series.LocalizedName = validSynonyms[^1];
+                    series.LocalizedNameLocked = true;
+                }
             }
-            else
+            else if (IsRomanCharacters(externalMetadata.Name))
             {
                 series.LocalizedName = externalMetadata.Name;
+                series.LocalizedNameLocked = true;
             }
+
 
             madeModification = true;
         }
 
-        if (settings.EnableSummary && (!series.Metadata.SummaryLocked ||
-                                       settings.HasOverride(MetadataSettingField.Summary)))
+        if (settings.EnableSummary && (settings.HasOverride(MetadataSettingField.Summary) ||
+                                       (!series.Metadata.SummaryLocked && !string.IsNullOrWhiteSpace(series.Metadata.Summary))))
         {
             series.Metadata.Summary = CleanSummary(externalMetadata.Summary);
             madeModification = true;
         }
 
-        if (settings.EnableStartDate && externalMetadata.StartDate.HasValue && (!series.Metadata.ReleaseYearLocked ||
-                settings.HasOverride(MetadataSettingField.StartDate)))
+        if (settings.EnableStartDate && externalMetadata.StartDate.HasValue && (settings.HasOverride(MetadataSettingField.StartDate) ||
+                                                                               (!series.Metadata.ReleaseYearLocked &&
+                                                                                   series.Metadata.ReleaseYear == 0)))
         {
             series.Metadata.ReleaseYear = externalMetadata.StartDate.Value.Year;
             madeModification = true;
